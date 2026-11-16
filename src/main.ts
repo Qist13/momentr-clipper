@@ -1,4 +1,13 @@
-import { app, BrowserWindow, globalShortcut } from "electron";
+import {
+    app,
+    BrowserWindow,
+    globalShortcut,
+    Menu,
+    Notification,
+    nativeImage,
+    shell,
+    Tray,
+} from "electron";
 import { spawn, ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -8,10 +17,14 @@ const SEGMENT_SECONDS = 2;
 const CLIP_SECONDS = 30;
 const BUFFER_SEGMENTS = CLIP_SECONDS / SEGMENT_SECONDS + 5;
 
-let ffmpeg: ChildProcess | null = null;
-
 // Store segments in the app's own data folder, not the project folder
 const bufferDir = path.join(app.getPath("userData"), "buffer");
+
+// Pick where the clip goes
+const clipsDir = path.join(app.getPath("videos"), "Momentr");
+
+let ffmpeg: ChildProcess | null = null;
+let tray: Tray | null = null;
 
 const startBuffer = () => {
     // Remove old segments from the last run, then create the folder fresh
@@ -93,8 +106,6 @@ const saveClip = () => {
         wanted.map((name) => `file '${name}'`).join("\n"),
     );
 
-    // Pick where the clip goes
-    const clipsDir = path.join(app.getPath("videos"), "Momentr");
     fs.mkdirSync(clipsDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const outPath = path.join(clipsDir, `clip_${stamp}.mp4`);
@@ -118,9 +129,38 @@ const saveClip = () => {
         console.error("[concat]", data.toString()),
     );
     concat.on("exit", (code) => {
-        if (code === 0) console.log("Clip saved:", outPath);
-        else console.error("Clip failed, ffmpeg exit code", code);
+        if (code === 0) {
+            console.log("Clip saved:", outPath);
+            const notification = new Notification({
+                title: "Clip saved",
+                body: path.basename(outPath),
+            });
+            notification.on("click", () => shell.openPath(outPath));
+            notification.show();
+        } else {
+            console.error("Clip failed, ffmpeg exit code", code);
+        }
     });
+};
+
+const createTray = () => {
+    const icon = nativeImage.createFromPath(
+        path.join(app.getAppPath(), "assets", "tray.png"),
+    );
+    tray = new Tray(icon);
+
+    tray.setToolTip("Momentr Clipper (recording)");
+    tray.setContextMenu(
+        Menu.buildFromTemplate([
+            { label: "Save clip (F8)", click: saveClip },
+            {
+                label: "Open clips folder",
+                click: () => shell.openPath(clipsDir),
+            },
+            { type: "separator" },
+            { label: "Quit", click: () => app.quit() },
+        ]),
+    );
 };
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -130,7 +170,7 @@ if (started) {
 
 // Only allow one copy of the app to run at a time
 if (!app.requestSingleInstanceLock()) {
-    app.quit();
+    app.exit(0);
 }
 
 const createWindow = () => {
@@ -163,34 +203,21 @@ const createWindow = () => {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-    createWindow();
     startBuffer();
+    createTray();
 
     const ok = globalShortcut.register("F8", saveClip);
 
     if (!ok) {
         console.error("Could not register F8 (another app may be using it)");
     }
-
-    // On OS X it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    app.on("activate", () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow();
-        }
-    });
 });
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
-app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") {
-        app.quit();
-    }
-});
+// Keep running in the tray when windows are closed; quit only from the tray menu
+app.on("window-all-closed", () => {});
 
 app.on("will-quit", () => {
+    tray?.destroy();
     ffmpeg?.kill("SIGINT");
     globalShortcut.unregisterAll();
 });
