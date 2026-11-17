@@ -30,20 +30,28 @@ const startBuffer = () => {
     fs.rmSync(bufferDir, { recursive: true, force: true });
     fs.mkdirSync(bufferDir, { recursive: true });
 
-    const display = process.env.DISPLAY ?? ":0";
+    // Screen capture input differs per OS
+    const input =
+        process.platform === "win32"
+            ? // Whole desktop via GDI; even dimensions are required by libx264
+              [
+                  "-f", "gdigrab",
+                  "-framerate", String(settings.fps),
+                  "-i", "desktop",
+                  "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+              ]
+            : [
+                  "-f", "x11grab",
+                  "-framerate", String(settings.fps),
+                  "-video_size", "1920x1080",
+                  "-i", process.env.DISPLAY ?? ":0",
+              ];
 
     const args = [
         "-loglevel",
         "warning",
         "-nostats",
-        "-f",
-        "x11grab",
-        "-framerate",
-        String(settings.fps),
-        "-video_size",
-        "1920x1080",
-        "-i",
-        display,
+        ...input,
         "-c:v",
         "libx264",
         "-preset",
@@ -144,7 +152,7 @@ const saveClip = () => {
 
 const createTray = () => {
     const icon = nativeImage.createFromPath(
-        path.join(app.getAppPath(), "assets", "tray.png"),
+        path.join(app.getAppPath(), "assets", "momentr.png"),
     );
     tray = new Tray(icon);
 
