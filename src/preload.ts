@@ -11,4 +11,5 @@ contextBridge.exposeInMainWorld('momentr', {
     ipcRenderer.invoke('settings:save', settings),
   chooseFolder: (current: string): Promise<string | null> =>
     ipcRenderer.invoke('settings:chooseFolder', current),
+  pauseHotkey: (paused: boolean) => ipcRenderer.send('hotkey:pause', paused),
 });

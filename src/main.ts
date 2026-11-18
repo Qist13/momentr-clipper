@@ -288,12 +288,27 @@ const openSettings = () => {
 
     settingsWindow.on("closed", () => {
         settingsWindow = null;
+        // In case the window closed while it was capturing a new hotkey
+        resumeHotkey();
     });
+};
+
+const resumeHotkey = () => {
+    if (!globalShortcut.isRegistered(settings.hotkey)) {
+        registerHotkey(settings.hotkey);
+    }
 };
 
 // Messages from the settings window (sent through preload.ts)
 const registerIpc = () => {
     ipcMain.handle("settings:get", () => settings);
+
+    // The settings window is listening for a new hotkey: let the current one
+    // reach the window instead of saving a clip
+    ipcMain.on("hotkey:pause", (_event, paused: boolean) => {
+        if (paused) globalShortcut.unregister(settings.hotkey);
+        else resumeHotkey();
+    });
 
     ipcMain.handle("settings:save", (_event, input: Partial<Settings>) => {
         const cleaned = cleanSettings(input, settings);

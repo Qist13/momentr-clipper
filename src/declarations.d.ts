@@ -12,5 +12,6 @@ interface Window {
       error: string | null;
     }>;
     chooseFolder: (current: string) => Promise<string | null>;
+    pauseHotkey: (paused: boolean) => void;
   };
 }

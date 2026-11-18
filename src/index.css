@@ -115,3 +115,14 @@ button.secondary {
 #status.error {
   color: var(--accent);
 }
+
+#hotkey {
+  color: var(--fg);
+  cursor: pointer;
+  caret-color: transparent;
+}
+
+#hotkey.capturing {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
