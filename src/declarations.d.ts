@@ -7,7 +7,10 @@ interface Window {
     getSettings: () => Promise<import('./settings').Settings>;
     saveSettings: (
       settings: import('./settings').Settings,
-    ) => Promise<import('./settings').Settings>;
+    ) => Promise<{
+      settings: import('./settings').Settings;
+      error: string | null;
+    }>;
     chooseFolder: (current: string) => Promise<string | null>;
   };
 }

@@ -11,7 +11,12 @@ import {
     Tray,
 } from "electron";
 import { spawn, ChildProcess } from "node:child_process";
-import { cleanSettings, loadSettings, saveSettings, Settings } from "./settings";
+import {
+    cleanSettings,
+    loadSettings,
+    saveSettings,
+    type Settings,
+} from "./settings";
 import fs from "node:fs";
 import path from "node:path";
 import started from "electron-squirrel-startup";
@@ -25,6 +30,8 @@ let ffmpeg: ChildProcess | null = null;
 let tray: Tray | null = null;
 let settings = loadSettings();
 let settingsWindow: BrowserWindow | null = null;
+let bufferRestarting = false;
+let quitting = false;
 
 const startBuffer = () => {
     const bufferSegments = settings.clipSeconds / SEGMENT_SECONDS + 5;
@@ -94,6 +101,25 @@ const startBuffer = () => {
         console.log("ffmpeg exited with code", code);
         ffmpeg = null;
     });
+};
+
+// Stop ffmpeg, wait for it to exit, then start again with the current settings.
+// This clears the replay buffer.
+const restartBuffer = () => {
+    // A restart is already on its way and will pick up the latest settings
+    if (bufferRestarting) return;
+
+    if (!ffmpeg) {
+        startBuffer();
+        return;
+    }
+
+    bufferRestarting = true;
+    ffmpeg.once("exit", () => {
+        bufferRestarting = false;
+        if (!quitting) startBuffer();
+    });
+    ffmpeg.kill("SIGINT");
 };
 
 const saveClip = () => {
@@ -168,18 +194,59 @@ const createTray = () => {
     tray = new Tray(icon);
 
     tray.setToolTip("Momentr Clipper (recording)");
-    tray.setContextMenu(
-        Menu.buildFromTemplate([
-            { label: `Save clip (${settings.hotkey})`, click: saveClip },
-            {
-                label: "Open clips folder",
-                click: () => shell.openPath(settings.clipsDir),
-            },
-            { label: "Settings...", click: openSettings },
-            { type: "separator" },
-            { label: "Quit", click: () => app.quit() },
-        ]),
-    );
+    tray.setContextMenu(buildTrayMenu());
+};
+
+// Rebuilt whenever settings change so the hotkey label stays correct
+const buildTrayMenu = () =>
+    Menu.buildFromTemplate([
+        { label: `Save clip (${settings.hotkey})`, click: saveClip },
+        {
+            label: "Open clips folder",
+            click: () => shell.openPath(settings.clipsDir),
+        },
+        { label: "Settings...", click: openSettings },
+        { type: "separator" },
+        { label: "Quit", click: () => app.quit() },
+    ]);
+
+// Register a global hotkey. Returns false if it's invalid or already taken.
+const registerHotkey = (hotkey: string) => {
+    try {
+        return globalShortcut.register(hotkey, saveClip);
+    } catch {
+        // Electron throws on strings it can't parse, e.g. "Ctrl+"
+        return false;
+    }
+};
+
+// Apply new settings to the running app. Returns an error message, or null.
+const applySettings = (next: Settings): string | null => {
+    const prev = settings;
+
+    // Hotkey first: if a new one can't be registered, change nothing
+    if (next.hotkey !== prev.hotkey) {
+        if (!registerHotkey(next.hotkey)) {
+            return `Couldn't use hotkey "${next.hotkey}" (invalid or taken by another app)`;
+        }
+        if (globalShortcut.isRegistered(prev.hotkey)) {
+            globalShortcut.unregister(prev.hotkey);
+        }
+    } else if (!globalShortcut.isRegistered(next.hotkey)) {
+        // Same hotkey, but it failed at startup: try again, don't block saving
+        registerHotkey(next.hotkey);
+    }
+
+    settings = next;
+    saveSettings(settings);
+    tray?.setContextMenu(buildTrayMenu());
+
+    // The buffer length and frame rate are baked into the ffmpeg command
+    if (next.fps !== prev.fps || next.clipSeconds !== prev.clipSeconds) {
+        restartBuffer();
+    }
+
+    return null;
 };
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -226,15 +293,14 @@ const openSettings = () => {
 
 // Messages from the settings window (sent through preload.ts)
 const registerIpc = () => {
-    // Read from disk so the form shows what was saved, even before 6e
-    // applies changes to the running app
-    ipcMain.handle("settings:get", () => loadSettings());
+    ipcMain.handle("settings:get", () => settings);
 
     ipcMain.handle("settings:save", (_event, input: Partial<Settings>) => {
-        const cleaned = cleanSettings(input, loadSettings());
-        saveSettings(cleaned);
-        console.log("Settings saved:", cleaned);
-        return cleaned;
+        const cleaned = cleanSettings(input, settings);
+        const error = applySettings(cleaned);
+        if (!error) console.log("Settings applied:", cleaned);
+        // Send back what's actually in use, so the form can show it
+        return { settings, error };
     });
 
     ipcMain.handle("settings:chooseFolder", async (_event, current: string) => {
@@ -257,9 +323,7 @@ app.whenReady().then(() => {
     startBuffer();
     createTray();
 
-    const ok = globalShortcut.register(settings.hotkey, saveClip);
-
-    if (!ok) {
+    if (!registerHotkey(settings.hotkey)) {
         console.error(
             `Could not register ${settings.hotkey} (another app may be using it)`,
         );
@@ -270,6 +334,7 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {});
 
 app.on("will-quit", () => {
+    quitting = true;
     tray?.destroy();
     ffmpeg?.kill("SIGINT");
     globalShortcut.unregisterAll();

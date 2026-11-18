@@ -111,3 +111,7 @@ button.secondary {
   border: 1px solid var(--border);
   white-space: nowrap;
 }
+
+#status.error {
+  color: var(--accent);
+}

@@ -9,6 +9,11 @@ export type Settings = {
     clipsDir: string;
 };
 
+// Choices offered in the settings window.
+// Clip lengths must be even: the buffer is made of 2-second segments.
+export const CLIP_SECONDS_OPTIONS = [10, 20, 30, 60, 90, 120];
+export const FPS_OPTIONS = [30, 60, 144];
+
 const settingsPath = path.join(app.getPath("userData"), "settings.json");
 
 const defaults = (): Settings => ({
@@ -34,13 +39,13 @@ export const saveSettings = (settings: Settings) => {
 // Settings coming from the window can't be trusted: fix up anything invalid
 // and fall back to the current value for missing fields
 export const cleanSettings = (input: Partial<Settings>, current: Settings): Settings => {
-    const seconds = Number(input.clipSeconds);
-    const clipSeconds = Number.isFinite(seconds)
-        ? // Clamp to 10-120 and round up to even (segments are 2 seconds)
-          Math.ceil(Math.min(120, Math.max(10, seconds)) / 2) * 2
+    const clipSeconds = CLIP_SECONDS_OPTIONS.includes(Number(input.clipSeconds))
+        ? Number(input.clipSeconds)
         : current.clipSeconds;
 
-    const fps = Number(input.fps) === 60 ? 60 : 30;
+    const fps = FPS_OPTIONS.includes(Number(input.fps))
+        ? Number(input.fps)
+        : current.fps;
 
     const hotkey =
         typeof input.hotkey === "string" && input.hotkey.trim()

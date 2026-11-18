@@ -5,7 +5,9 @@ import type { Settings } from './settings';
 
 contextBridge.exposeInMainWorld('momentr', {
   getSettings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
-  saveSettings: (settings: Settings): Promise<Settings> =>
+  saveSettings: (
+    settings: Settings,
+  ): Promise<{ settings: Settings; error: string | null }> =>
     ipcRenderer.invoke('settings:save', settings),
   chooseFolder: (current: string): Promise<string | null> =>
     ipcRenderer.invoke('settings:chooseFolder', current),

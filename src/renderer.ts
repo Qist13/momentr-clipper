@@ -29,14 +29,16 @@ form.addEventListener('submit', async (event) => {
   // Stop the browser from reloading the page on submit
   event.preventDefault();
 
-  const saved = await window.momentr.saveSettings({
+  const { settings, error } = await window.momentr.saveSettings({
     clipSeconds: Number(field('clipSeconds').value),
     fps: Number(field('fps').value),
     hotkey: field('hotkey').value,
     clipsDir: field('clipsDir').value,
   });
 
-  // Show what main actually stored (it may have corrected values)
-  fill(saved);
-  status.textContent = 'Saved. Restart to apply.';
+  // On success show what main is using (it may have corrected values).
+  // On error keep the user's edits so they can fix the hotkey.
+  if (!error) fill(settings);
+  status.textContent = error ?? 'Saved';
+  status.classList.toggle('error', error !== null);
 });

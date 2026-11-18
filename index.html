@@ -7,16 +7,15 @@
   <body>
     <form id="settings-form">
       <label>
-        Clip length (seconds)
-        <input
-          type="number"
-          id="clipSeconds"
-          name="clipSeconds"
-          min="10"
-          max="120"
-          step="2"
-          required
-        />
+        Clip length
+        <select id="clipSeconds" name="clipSeconds">
+          <option value="10">10 seconds</option>
+          <option value="20">20 seconds</option>
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="90">1.5 minutes</option>
+          <option value="120">2 minutes</option>
+        </select>
       </label>
 
       <label>
@@ -24,6 +23,7 @@
         <select id="fps" name="fps">
           <option value="30">30 fps</option>
           <option value="60">60 fps</option>
+          <option value="144">144 fps</option>
         </select>
       </label>
 
