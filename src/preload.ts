@@ -1,3 +1,12 @@
-// oxlint-disable eslint-plugin-unicorn/no-empty-file
-// See the Electron documentation for details on how to use preload scripts:
-// https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts
+// Runs before the settings page loads. It has access to Electron's
+// ipcRenderer and exposes a small, safe API to the page as window.momentr.
+import { contextBridge, ipcRenderer } from 'electron';
+import type { Settings } from './settings';
+
+contextBridge.exposeInMainWorld('momentr', {
+  getSettings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
+  saveSettings: (settings: Settings): Promise<Settings> =>
+    ipcRenderer.invoke('settings:save', settings),
+  chooseFolder: (current: string): Promise<string | null> =>
+    ipcRenderer.invoke('settings:chooseFolder', current),
+});

@@ -1,7 +1,9 @@
 import {
     app,
     BrowserWindow,
+    dialog,
     globalShortcut,
+    ipcMain,
     Menu,
     Notification,
     nativeImage,
@@ -9,7 +11,7 @@ import {
     Tray,
 } from "electron";
 import { spawn, ChildProcess } from "node:child_process";
-import { loadSettings } from "./settings";
+import { cleanSettings, loadSettings, saveSettings, Settings } from "./settings";
 import fs from "node:fs";
 import path from "node:path";
 import started from "electron-squirrel-startup";
@@ -198,6 +200,7 @@ const openSettings = () => {
         settingsWindow = new BrowserWindow({
             width: 420,
             height: 360,
+            useContentSize: true,
             resizable: false,
             title: "Momentr Settings",
             autoHideMenuBar: true,
@@ -221,10 +224,36 @@ const openSettings = () => {
     });
 };
 
+// Messages from the settings window (sent through preload.ts)
+const registerIpc = () => {
+    // Read from disk so the form shows what was saved, even before 6e
+    // applies changes to the running app
+    ipcMain.handle("settings:get", () => loadSettings());
+
+    ipcMain.handle("settings:save", (_event, input: Partial<Settings>) => {
+        const cleaned = cleanSettings(input, loadSettings());
+        saveSettings(cleaned);
+        console.log("Settings saved:", cleaned);
+        return cleaned;
+    });
+
+    ipcMain.handle("settings:chooseFolder", async (_event, current: string) => {
+        const options: Electron.OpenDialogOptions = {
+            defaultPath: current,
+            properties: ["openDirectory", "createDirectory"],
+        };
+        const result = settingsWindow
+            ? await dialog.showOpenDialog(settingsWindow, options)
+            : await dialog.showOpenDialog(options);
+        return result.canceled ? null : result.filePaths[0];
+    });
+};
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+    registerIpc();
     startBuffer();
     createTray();
 

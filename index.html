@@ -2,11 +2,49 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>Hello World!</title>
+    <title>Momentr Settings</title>
   </head>
   <body>
-    <h1>💖 Hello World!</h1>
-    <p>Welcome to your Electron application.</p>
+    <form id="settings-form">
+      <label>
+        Clip length (seconds)
+        <input
+          type="number"
+          id="clipSeconds"
+          name="clipSeconds"
+          min="10"
+          max="120"
+          step="2"
+          required
+        />
+      </label>
+
+      <label>
+        Frame rate
+        <select id="fps" name="fps">
+          <option value="30">30 fps</option>
+          <option value="60">60 fps</option>
+        </select>
+      </label>
+
+      <label>
+        Save clip hotkey
+        <input type="text" id="hotkey" name="hotkey" required />
+      </label>
+
+      <label>
+        Clips folder
+        <span class="row">
+          <input type="text" id="clipsDir" name="clipsDir" readonly />
+          <button type="button" id="browse" class="secondary">Browse…</button>
+        </span>
+      </label>
+
+      <div class="actions">
+        <span id="status"></span>
+        <button type="submit">Save</button>
+      </div>
+    </form>
     <script type="module" src="/src/renderer.ts"></script>
   </body>
 </html>
