@@ -22,6 +22,7 @@ const bufferDir = path.join(app.getPath("userData"), "buffer");
 let ffmpeg: ChildProcess | null = null;
 let tray: Tray | null = null;
 let settings = loadSettings();
+let settingsWindow: BrowserWindow | null = null;
 
 const startBuffer = () => {
     const bufferSegments = settings.clipSeconds / SEGMENT_SECONDS + 5;
@@ -35,16 +36,24 @@ const startBuffer = () => {
         process.platform === "win32"
             ? // Whole desktop via GDI; even dimensions are required by libx264
               [
-                  "-f", "gdigrab",
-                  "-framerate", String(settings.fps),
-                  "-i", "desktop",
-                  "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                  "-f",
+                  "gdigrab",
+                  "-framerate",
+                  String(settings.fps),
+                  "-i",
+                  "desktop",
+                  "-vf",
+                  "scale=trunc(iw/2)*2:trunc(ih/2)*2",
               ]
             : [
-                  "-f", "x11grab",
-                  "-framerate", String(settings.fps),
-                  "-video_size", "1920x1080",
-                  "-i", process.env.DISPLAY ?? ":0",
+                  "-f",
+                  "x11grab",
+                  "-framerate",
+                  String(settings.fps),
+                  "-video_size",
+                  "1920x1080",
+                  "-i",
+                  process.env.DISPLAY ?? ":0",
               ];
 
     const args = [
@@ -164,6 +173,7 @@ const createTray = () => {
                 label: "Open clips folder",
                 click: () => shell.openPath(settings.clipsDir),
             },
+            { label: "Settings...", click: openSettings },
             { type: "separator" },
             { label: "Quit", click: () => app.quit() },
         ]),
@@ -180,21 +190,25 @@ if (!app.requestSingleInstanceLock()) {
     app.exit(0);
 }
 
-const createWindow = () => {
-    // Create the browser window.
-    const mainWindow = new BrowserWindow({
-        width: 800,
-        height: 600,
-        webPreferences: {
-            preload: path.join(__dirname, "preload.cjs"),
-        },
-    });
-
-    // and load the index.html of the app.
-    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-        mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+const openSettings = () => {
+    if (settingsWindow) {
+        settingsWindow.focus();
+        return;
     } else {
-        mainWindow.loadFile(
+        settingsWindow = new BrowserWindow({
+            width: 420,
+            height: 360,
+            resizable: false,
+            title: "Momentr Settings",
+            autoHideMenuBar: true,
+            webPreferences: { preload: path.join(__dirname, "preload.cjs") },
+        });
+    }
+
+    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+        settingsWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+    } else {
+        settingsWindow.loadFile(
             path.join(
                 __dirname,
                 `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`,
@@ -202,8 +216,9 @@ const createWindow = () => {
         );
     }
 
-    // Open the DevTools.
-    mainWindow.webContents.openDevTools();
+    settingsWindow.on("closed", () => {
+        settingsWindow = null;
+    });
 };
 
 // This method will be called when Electron has finished
