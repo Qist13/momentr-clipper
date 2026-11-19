@@ -7,6 +7,7 @@ import {
     Menu,
     Notification,
     nativeImage,
+    screen,
     shell,
     Tray,
 } from "electron";
@@ -41,6 +42,9 @@ let settings = loadSettings();
 let settingsWindow: BrowserWindow | null = null;
 let bufferRestarting = false;
 let quitting = false;
+let bufferStartedAt = 0;
+let quickFailures = 0;
+let retryTimer: NodeJS.Timeout | null = null;
 
 // State of a start/stop recording, or null when not recording
 let recording: {
@@ -101,7 +105,21 @@ const audioInputs = (recordMic: boolean): string[][] => {
     return [];
 };
 
-const startBuffer = () => {
+const screenCapture = () => {
+    const display = screen.getPrimaryDisplay();
+    const even = (n: number) => Math.floor((n * display.scaleFactor) / 2) * 2;
+    const { x, y, width, height } = display.bounds;
+    return {
+        size: `${even(width)}x${even(height)}`,
+        offset: `+${Math.round(x * display.scaleFactor)},${Math.round(y * display.scaleFactor)}`,
+    };
+};
+
+const startBuffer = (withAudio = true) => {
+    if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+    }
     const bufferSegments = settings.clipSeconds / SEGMENT_SECONDS + 5;
 
     // Remove old segments from the last run, then create the folder fresh
@@ -126,12 +144,12 @@ const startBuffer = () => {
                   "-framerate",
                   String(settings.fps),
                   "-video_size",
-                  "1920x1080",
+                  screenCapture().size,
                   "-i",
-                  process.env.DISPLAY ?? ":0",
+                  (process.env.DISPLAY ?? ":0") + screenCapture().offset,
               ];
 
-    const audio = audioInputs(settings.recordMic);
+    const audio = withAudio ? audioInputs(settings.recordMic) : [];
 
     const filters: string[] = [];
     let videoOut = "0:v";
@@ -187,6 +205,7 @@ const startBuffer = () => {
     ];
 
     ffmpeg = spawn("ffmpeg", args);
+    bufferStartedAt = Date.now();
     console.log("Buffer started:", bufferDir);
 
     ffmpeg.stderr?.on("data", (data) =>
@@ -195,7 +214,29 @@ const startBuffer = () => {
     ffmpeg.on("exit", (code) => {
         console.log("ffmpeg exited with code", code);
         ffmpeg = null;
+        if (!quitting && !bufferRestarting) handleBufferCrash();
     });
+};
+
+const handleBufferCrash = () => {
+    const ranFor = Date.now() - bufferStartedAt;
+    quickFailures = ranFor < 10_000 ? quickFailures + 1 : 1;
+    const withAudio = quickFailures < 3;
+
+    if (quickFailures === 1) {
+        notify("Replay buffer stopped", "Restarting it…");
+    } else if (quickFailures === 3) {
+        notify(
+            "Recording without sound",
+            "Couldn't open the audio device. Change the setting or restart the app to try again.",
+        );
+    }
+
+    const delay = Math.min(2000 * quickFailures, 30_000);
+    retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (!quitting && !ffmpeg && !bufferRestarting) startBuffer(withAudio);
+    }, delay);
 };
 
 // Stop ffmpeg, wait for it to exit, then start again with the current settings.
@@ -238,7 +279,7 @@ const saveClip = async () => {
         .map((s) => s.name);
 
     if (wanted.length === 0) {
-        console.log("!!! Nothing recorded yet !!!");
+        notify("Nothing to save yet", "The replay buffer just started");
         return;
     }
 
