@@ -219,7 +219,6 @@ const startRecording = () => {
     };
 
     updateTray();
-    notify("Recording started", `Press ${settings.recordHotkey} to stop`);
 };
 
 const stopRecording = async () => {
