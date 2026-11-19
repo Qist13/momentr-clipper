@@ -16,6 +16,7 @@ const fill = (settings: Settings) => {
   field('clipSeconds').value = String(settings.clipSeconds);
   field('fps').value = String(settings.fps);
   field('hotkey').value = settings.hotkey;
+  field('recordHotkey').value = settings.recordHotkey;
   field('clipsDir').value = settings.clipsDir;
 };
 
@@ -26,67 +27,72 @@ const showStatus = (text: string, isError = false) => {
   status.classList.toggle('error', isError);
 };
 
-// --- Hotkey capture: click the field, then press the key combination ---
+// --- Hotkey capture: click a hotkey field, then press the key combination ---
 
-const hotkeyInput = field('hotkey') as HTMLInputElement;
-let capturing = false;
-let previousHotkey = '';
+const setupHotkeyField = (input: HTMLInputElement) => {
+  let capturing = false;
+  let previous = '';
 
-const startCapture = () => {
-  if (capturing) return;
-  capturing = true;
-  previousHotkey = hotkeyInput.value;
-  hotkeyInput.value = '';
-  hotkeyInput.placeholder = 'Press a key… (Esc to cancel)';
-  hotkeyInput.classList.add('capturing');
-  showStatus('');
-  // Otherwise pressing the current hotkey would save a clip instead
-  window.momentr.pauseHotkey(true);
+  const startCapture = () => {
+    if (capturing) return;
+    capturing = true;
+    previous = input.value;
+    input.value = '';
+    input.placeholder = 'Press a key… (Esc to cancel)';
+    input.classList.add('capturing');
+    showStatus('');
+    // Otherwise pressing a current hotkey would trigger it instead
+    window.momentr.pauseHotkey(true);
+  };
+
+  // With no value, restores the hotkey from before capture started
+  const stopCapture = (value?: string) => {
+    if (!capturing) return;
+    capturing = false;
+    input.value = value ?? previous;
+    input.placeholder = '';
+    input.classList.remove('capturing');
+    window.momentr.pauseHotkey(false);
+  };
+
+  input.addEventListener('focus', startCapture);
+  input.addEventListener('blur', () => stopCapture());
+
+  input.addEventListener('keydown', (event) => {
+    const mods = modifiers(event);
+
+    // Plain Tab still moves to the next field
+    if (event.key === 'Tab' && mods.length === 0) return;
+    event.preventDefault();
+
+    if (event.key === 'Escape') {
+      input.blur();
+      return;
+    }
+
+    const key = keyName(event.code);
+
+    // Only modifiers held so far: show them and keep waiting
+    if (!key) {
+      input.value = mods.length ? mods.join('+') + '+…' : '';
+      return;
+    }
+
+    if (mods.length === 0 && !worksAlone(key)) {
+      showStatus(`Add Ctrl, Alt or Shift to use ${key}`, true);
+      input.value = '';
+      return;
+    }
+
+    stopCapture([...mods, key].join('+'));
+    input.blur();
+    showStatus('Click Save to apply');
+  });
 };
 
-// With no value, restores the hotkey from before capture started
-const stopCapture = (value?: string) => {
-  if (!capturing) return;
-  capturing = false;
-  hotkeyInput.value = value ?? previousHotkey;
-  hotkeyInput.placeholder = '';
-  hotkeyInput.classList.remove('capturing');
-  window.momentr.pauseHotkey(false);
-};
-
-hotkeyInput.addEventListener('focus', startCapture);
-hotkeyInput.addEventListener('blur', () => stopCapture());
-
-hotkeyInput.addEventListener('keydown', (event) => {
-  const mods = modifiers(event);
-
-  // Plain Tab still moves to the next field
-  if (event.key === 'Tab' && mods.length === 0) return;
-  event.preventDefault();
-
-  if (event.key === 'Escape') {
-    hotkeyInput.blur();
-    return;
-  }
-
-  const key = keyName(event.code);
-
-  // Only modifiers held so far: show them and keep waiting
-  if (!key) {
-    hotkeyInput.value = mods.length ? mods.join('+') + '+…' : '';
-    return;
-  }
-
-  if (mods.length === 0 && !worksAlone(key)) {
-    showStatus(`Add Ctrl, Alt or Shift to use ${key}`, true);
-    hotkeyInput.value = '';
-    return;
-  }
-
-  stopCapture([...mods, key].join('+'));
-  hotkeyInput.blur();
-  showStatus('Click Save to apply');
-});
+document
+  .querySelectorAll<HTMLInputElement>('input.hotkey')
+  .forEach(setupHotkeyField);
 
 browse.addEventListener('click', async () => {
   const folder = await window.momentr.chooseFolder(field('clipsDir').value);
@@ -101,6 +107,7 @@ form.addEventListener('submit', async (event) => {
     clipSeconds: Number(field('clipSeconds').value),
     fps: Number(field('fps').value),
     hotkey: field('hotkey').value,
+    recordHotkey: field('recordHotkey').value,
     clipsDir: field('clipsDir').value,
   });
 

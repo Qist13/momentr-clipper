@@ -17,6 +17,12 @@ import {
     saveSettings,
     type Settings,
 } from "./settings";
+import {
+    concatSegments,
+    concatSegmentsSync,
+    listSegments,
+    timestamp,
+} from "./segments";
 import fs from "node:fs";
 import path from "node:path";
 import started from "electron-squirrel-startup";
@@ -25,6 +31,8 @@ const SEGMENT_SECONDS = 2;
 
 // Store segments in the app's own data folder, not the project folder
 const bufferDir = path.join(app.getPath("userData"), "buffer");
+// Segments of a start/stop recording are copied here as they finish
+const recordingDir = path.join(app.getPath("userData"), "recording");
 
 let ffmpeg: ChildProcess | null = null;
 let tray: Tray | null = null;
@@ -32,6 +40,14 @@ let settings = loadSettings();
 let settingsWindow: BrowserWindow | null = null;
 let bufferRestarting = false;
 let quitting = false;
+
+// State of a start/stop recording, or null when not recording
+let recording: {
+    timer: NodeJS.Timeout;
+    lastCopied: number; // mtime of the newest buffer segment already copied
+    parts: number; // how many segments have been copied
+    stopping: boolean;
+} | null = null;
 
 const startBuffer = () => {
     const bufferSegments = settings.clipSeconds / SEGMENT_SECONDS + 5;
@@ -122,85 +138,177 @@ const restartBuffer = () => {
     ffmpeg.kill("SIGINT");
 };
 
-const saveClip = () => {
-    // All segments, sorted oldest -> newest by modification time
-    const segments = fs
-        .readdirSync(bufferDir)
-        .filter((name) => name.endsWith(".ts"))
-        .map((name) => ({
-            name,
-            time: fs.statSync(path.join(bufferDir, name)).mtimeMs,
-        }))
-        .sort((a, b) => a.time - b.time)
-        .map((s) => s.name);
+const notifySaved = (title: string, outPath: string) => {
+    console.log(`${title}:`, outPath);
+    const notification = new Notification({
+        title,
+        body: path.basename(outPath),
+    });
+    notification.on("click", () => shell.openPath(outPath));
+    notification.show();
+};
 
+const notify = (title: string, body = "") =>
+    new Notification({ title, body }).show();
+
+const saveClip = async () => {
     // Leave out the newest (still being written), then take the last N
-    const finished = segments.slice(0, -1);
-    const wanted = finished.slice(-(settings.clipSeconds / SEGMENT_SECONDS));
+    const finished = listSegments(bufferDir).slice(0, -1);
+    const wanted = finished
+        .slice(-(settings.clipSeconds / SEGMENT_SECONDS))
+        .map((s) => s.name);
 
     if (wanted.length === 0) {
         console.log("!!! Nothing recorded yet !!!");
         return;
     }
 
-    // Write the concat list
-    const listPath = path.join(bufferDir, "list.txt");
-    fs.writeFileSync(
-        listPath,
-        wanted.map((name) => `file '${name}'`).join("\n"),
+    const outPath = path.join(settings.clipsDir, `clip_${timestamp()}.mp4`);
+    if (await concatSegments(bufferDir, wanted, outPath)) {
+        notifySaved("Clip saved", outPath);
+    } else {
+        console.error("Clip failed:", outPath);
+    }
+};
+
+// --- Start/stop recording ---
+// Uses the same ffmpeg as the replay buffer: while recording, every finished
+// buffer segment is copied to recordingDir before the buffer wraps around and
+// overwrites it. On stop, the copies are joined into one mp4.
+
+const copyNewSegments = (includeNewest = false) => {
+    if (!recording) return;
+    const segments = listSegments(bufferDir);
+    const ready = includeNewest ? segments : segments.slice(0, -1);
+
+    for (const segment of ready) {
+        if (segment.time <= recording.lastCopied) continue;
+        recording.parts += 1;
+        const partName = `part_${String(recording.parts).padStart(5, "0")}.ts`;
+        fs.copyFileSync(
+            path.join(bufferDir, segment.name),
+            path.join(recordingDir, partName),
+        );
+        recording.lastCopied = segment.time;
+    }
+};
+
+const partNames = () =>
+    fs
+        .readdirSync(recordingDir)
+        .filter((name) => name.startsWith("part_"))
+        .sort();
+
+const startRecording = () => {
+    if (!ffmpeg || bufferRestarting) {
+        notify("Can't record", "The screen recorder isn't running");
+        return;
+    }
+
+    fs.rmSync(recordingDir, { recursive: true, force: true });
+    fs.mkdirSync(recordingDir, { recursive: true });
+
+    // Start from the segment being written right now (up to 2s before the press)
+    const finished = listSegments(bufferDir).slice(0, -1);
+    recording = {
+        timer: setInterval(() => copyNewSegments(), 1000),
+        lastCopied: finished.at(-1)?.time ?? 0,
+        parts: 0,
+        stopping: false,
+    };
+
+    updateTray();
+    notify("Recording started", `Press ${settings.recordHotkey} to stop`);
+};
+
+const stopRecording = async () => {
+    if (!recording || recording.stopping) return;
+    recording.stopping = true;
+    updateTray();
+
+    // Wait for the segment being written to finish so the last seconds are kept
+    await new Promise((r) => setTimeout(r, SEGMENT_SECONDS * 1000 + 500));
+    // The app may have quit while waiting (finishRecordingNow saved it)
+    if (!recording) return;
+    clearInterval(recording.timer);
+    copyNewSegments();
+    recording = null;
+    updateTray();
+
+    const names = partNames();
+    if (names.length === 0) {
+        notify("Recording failed", "Nothing was recorded");
+        return;
+    }
+
+    const outPath = path.join(
+        settings.clipsDir,
+        `recording_${timestamp()}.mp4`,
     );
+    if (await concatSegments(recordingDir, names, outPath)) {
+        notifySaved("Recording saved", outPath);
+        fs.rmSync(recordingDir, { recursive: true, force: true });
+    } else {
+        // Keep the parts so nothing is lost
+        notify("Recording failed", `Segments kept in ${recordingDir}`);
+    }
+};
 
-    fs.mkdirSync(settings.clipsDir, { recursive: true });
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const outPath = path.join(settings.clipsDir, `clip_${stamp}.mp4`);
+const toggleRecording = () => {
+    if (recording) stopRecording();
+    else startRecording();
+};
 
-    // Join the segments without re-encoding
-    const concat = spawn("ffmpeg", [
-        "-loglevel",
-        "error",
-        "-f",
-        "concat",
-        "-i",
-        listPath,
-        "-c",
-        "copy",
-        "-movflags",
-        "+faststart",
-        outPath,
-    ]);
+// Called while quitting: save whatever was recorded, synchronously
+const finishRecordingNow = () => {
+    if (!recording) return;
+    clearInterval(recording.timer);
+    copyNewSegments(true);
+    recording = null;
 
-    concat.stderr?.on("data", (data) =>
-        console.error("[concat]", data.toString()),
+    const names = partNames();
+    if (names.length === 0) return;
+    const outPath = path.join(
+        settings.clipsDir,
+        `recording_${timestamp()}.mp4`,
     );
-    concat.on("exit", (code) => {
-        if (code === 0) {
-            console.log("Clip saved:", outPath);
-            const notification = new Notification({
-                title: "Clip saved",
-                body: path.basename(outPath),
-            });
-            notification.on("click", () => shell.openPath(outPath));
-            notification.show();
-        } else {
-            console.error("Clip failed, ffmpeg exit code", code);
-        }
-    });
+    if (concatSegmentsSync(recordingDir, names, outPath)) {
+        fs.rmSync(recordingDir, { recursive: true, force: true });
+    }
 };
 
 const createTray = () => {
-    const icon = nativeImage.createFromPath(
-        path.join(app.getAppPath(), "assets", "momentr.png"),
-    );
-    tray = new Tray(icon);
-
-    tray.setToolTip("Momentr Clipper (recording)");
-    tray.setContextMenu(buildTrayMenu());
+    tray = new Tray(appIcon());
+    updateTray();
 };
 
-// Rebuilt whenever settings change so the hotkey label stays correct
+const appIcon = () =>
+    nativeImage.createFromPath(
+        path.join(app.getAppPath(), "assets", "momentr.png"),
+    );
+// Red dot shown in the tray while a start/stop recording is running
+const recordingIcon = () =>
+    nativeImage.createFromPath(path.join(app.getAppPath(), "assets", "tray.png"));
+
+// Refresh the tray menu, icon and tooltip after settings or recording change
+const updateTray = () => {
+    if (!tray) return;
+    tray.setContextMenu(buildTrayMenu());
+    tray.setImage(recording ? recordingIcon() : appIcon());
+    tray.setToolTip(
+        recording ? "Momentr Clipper: recording" : "Momentr Clipper (replay on)",
+    );
+};
+
 const buildTrayMenu = () =>
     Menu.buildFromTemplate([
         { label: `Save clip (${settings.hotkey})`, click: saveClip },
+        recording?.stopping
+            ? { label: "Saving recording...", enabled: false }
+            : {
+                  label: `${recording ? "Stop" : "Start"} recording (${settings.recordHotkey})`,
+                  click: toggleRecording,
+              },
         {
             label: "Open clips folder",
             click: () => shell.openPath(settings.clipsDir),
@@ -211,40 +319,64 @@ const buildTrayMenu = () =>
     ]);
 
 // Register a global hotkey. Returns false if it's invalid or already taken.
-const registerHotkey = (hotkey: string) => {
+const registerHotkey = (hotkey: string, action: () => void) => {
     try {
-        return globalShortcut.register(hotkey, saveClip);
+        return globalShortcut.register(hotkey, action);
     } catch {
         // Electron throws on strings it can't parse, e.g. "Ctrl+"
         return false;
     }
 };
 
+// Register every hotkey in these settings that isn't registered yet.
+// Returns the first one that failed, or null.
+const registerHotkeys = (s: Settings): string | null => {
+    const actions: [string, () => void][] = [
+        [s.hotkey, saveClip],
+        [s.recordHotkey, toggleRecording],
+    ];
+    let failed: string | null = null;
+    for (const [hotkey, action] of actions) {
+        if (globalShortcut.isRegistered(hotkey)) continue;
+        if (!registerHotkey(hotkey, action)) failed ??= hotkey;
+    }
+    return failed;
+};
+
 // Apply new settings to the running app. Returns an error message, or null.
 const applySettings = (next: Settings): string | null => {
     const prev = settings;
+    const bufferChanged =
+        next.fps !== prev.fps || next.clipSeconds !== prev.clipSeconds;
 
-    // Hotkey first: if a new one can't be registered, change nothing
-    if (next.hotkey !== prev.hotkey) {
-        if (!registerHotkey(next.hotkey)) {
-            return `Couldn't use hotkey "${next.hotkey}" (invalid or taken by another app)`;
+    if (next.hotkey === next.recordHotkey) {
+        return "The clip and recording hotkeys must be different";
+    }
+    // Restarting ffmpeg would cut the recording off
+    if (recording && bufferChanged) {
+        return "Stop the recording before changing clip length or frame rate";
+    }
+
+    // Hotkeys first: if a new one can't be registered, change nothing
+    if (next.hotkey !== prev.hotkey || next.recordHotkey !== prev.recordHotkey) {
+        globalShortcut.unregisterAll();
+        const failed = registerHotkeys(next);
+        if (failed) {
+            globalShortcut.unregisterAll();
+            registerHotkeys(prev);
+            return `Couldn't use hotkey "${failed}" (invalid or taken by another app)`;
         }
-        if (globalShortcut.isRegistered(prev.hotkey)) {
-            globalShortcut.unregister(prev.hotkey);
-        }
-    } else if (!globalShortcut.isRegistered(next.hotkey)) {
-        // Same hotkey, but it failed at startup: try again, don't block saving
-        registerHotkey(next.hotkey);
+    } else {
+        // Same hotkeys, but one may have failed at startup: try again
+        registerHotkeys(next);
     }
 
     settings = next;
     saveSettings(settings);
-    tray?.setContextMenu(buildTrayMenu());
+    updateTray();
 
     // The buffer length and frame rate are baked into the ffmpeg command
-    if (next.fps !== prev.fps || next.clipSeconds !== prev.clipSeconds) {
-        restartBuffer();
-    }
+    if (bufferChanged) restartBuffer();
 
     return null;
 };
@@ -266,7 +398,7 @@ const openSettings = () => {
     } else {
         settingsWindow = new BrowserWindow({
             width: 420,
-            height: 360,
+            height: 420,
             useContentSize: true,
             resizable: false,
             title: "Momentr Settings",
@@ -289,25 +421,19 @@ const openSettings = () => {
     settingsWindow.on("closed", () => {
         settingsWindow = null;
         // In case the window closed while it was capturing a new hotkey
-        resumeHotkey();
+        registerHotkeys(settings);
     });
-};
-
-const resumeHotkey = () => {
-    if (!globalShortcut.isRegistered(settings.hotkey)) {
-        registerHotkey(settings.hotkey);
-    }
 };
 
 // Messages from the settings window (sent through preload.ts)
 const registerIpc = () => {
     ipcMain.handle("settings:get", () => settings);
 
-    // The settings window is listening for a new hotkey: let the current one
-    // reach the window instead of saving a clip
+    // The settings window is listening for a new hotkey: let the current ones
+    // reach the window instead of saving a clip or starting a recording
     ipcMain.on("hotkey:pause", (_event, paused: boolean) => {
-        if (paused) globalShortcut.unregister(settings.hotkey);
-        else resumeHotkey();
+        if (paused) globalShortcut.unregisterAll();
+        else registerHotkeys(settings);
     });
 
     ipcMain.handle("settings:save", (_event, input: Partial<Settings>) => {
@@ -338,9 +464,10 @@ app.whenReady().then(() => {
     startBuffer();
     createTray();
 
-    if (!registerHotkey(settings.hotkey)) {
+    const failed = registerHotkeys(settings);
+    if (failed) {
         console.error(
-            `Could not register ${settings.hotkey} (another app may be using it)`,
+            `Could not register ${failed} (another app may be using it)`,
         );
     }
 });
@@ -350,6 +477,8 @@ app.on("window-all-closed", () => {});
 
 app.on("will-quit", () => {
     quitting = true;
+    // Save a recording in progress before ffmpeg stops
+    finishRecordingNow();
     tray?.destroy();
     ffmpeg?.kill("SIGINT");
     globalShortcut.unregisterAll();

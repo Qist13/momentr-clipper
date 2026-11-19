@@ -116,13 +116,13 @@ button.secondary {
   color: var(--accent);
 }
 
-#hotkey {
+.hotkey {
   color: var(--fg);
   cursor: pointer;
   caret-color: transparent;
 }
 
-#hotkey.capturing {
+.hotkey.capturing {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }

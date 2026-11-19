@@ -5,6 +5,7 @@ import path from "node:path";
 export type Settings = {
     clipSeconds: number;
     hotkey: string;
+    recordHotkey: string;
     fps: number;
     clipsDir: string;
 };
@@ -19,6 +20,7 @@ const settingsPath = path.join(app.getPath("userData"), "settings.json");
 const defaults = (): Settings => ({
     clipSeconds: 30,
     hotkey: "F8",
+    recordHotkey: "F9",
     fps: 30,
     clipsDir: path.join(app.getPath("videos"), "Momentr"),
 });
@@ -47,15 +49,13 @@ export const cleanSettings = (input: Partial<Settings>, current: Settings): Sett
         ? Number(input.fps)
         : current.fps;
 
-    const hotkey =
-        typeof input.hotkey === "string" && input.hotkey.trim()
-            ? input.hotkey.trim()
-            : current.hotkey;
+    const text = (value: unknown, fallback: string) =>
+        typeof value === "string" && value.trim() ? value.trim() : fallback;
 
-    const clipsDir =
-        typeof input.clipsDir === "string" && input.clipsDir.trim()
-            ? input.clipsDir.trim()
-            : current.clipsDir;
+    const hotkey = text(input.hotkey, current.hotkey);
+    const recordHotkey = text(input.recordHotkey, current.recordHotkey);
 
-    return { clipSeconds, fps, hotkey, clipsDir };
+    const clipsDir = text(input.clipsDir, current.clipsDir);
+
+    return { clipSeconds, fps, hotkey, recordHotkey, clipsDir };
 };
