@@ -65,6 +65,20 @@ select:focus {
   outline-offset: -1px;
 }
 
+label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--fg);
+  font-size: 14px;
+}
+
+label.check input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 input[readonly] {
   color: var(--muted);
 }

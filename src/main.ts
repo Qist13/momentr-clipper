@@ -23,6 +23,7 @@ import {
     listSegments,
     timestamp,
 } from "./segments";
+import { setAutoStart } from "./autostart";
 import fs from "node:fs";
 import path from "node:path";
 import started from "electron-squirrel-startup";
@@ -371,6 +372,11 @@ const applySettings = (next: Settings): string | null => {
         registerHotkeys(next);
     }
 
+    if (next.openAtLogin !== prev.openAtLogin) {
+        const error = setAutoStart(next.openAtLogin);
+        if (error) return error;
+    }
+
     settings = next;
     saveSettings(settings);
     updateTray();
@@ -398,7 +404,7 @@ const openSettings = () => {
     } else {
         settingsWindow = new BrowserWindow({
             width: 420,
-            height: 420,
+            height: 460,
             useContentSize: true,
             resizable: false,
             title: "Momentr Settings",
@@ -463,6 +469,7 @@ app.whenReady().then(() => {
     registerIpc();
     startBuffer();
     createTray();
+    setAutoStart(settings.openAtLogin);
 
     const failed = registerHotkeys(settings);
     if (failed) {

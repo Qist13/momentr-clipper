@@ -8,6 +8,7 @@ export type Settings = {
     recordHotkey: string;
     fps: number;
     clipsDir: string;
+    openAtLogin: boolean;
 };
 
 // Choices offered in the settings window.
@@ -23,6 +24,7 @@ const defaults = (): Settings => ({
     recordHotkey: "F9",
     fps: 30,
     clipsDir: path.join(app.getPath("videos"), "Momentr"),
+    openAtLogin: false,
 });
 
 export const loadSettings = (): Settings => {
@@ -57,5 +59,10 @@ export const cleanSettings = (input: Partial<Settings>, current: Settings): Sett
 
     const clipsDir = text(input.clipsDir, current.clipsDir);
 
-    return { clipSeconds, fps, hotkey, recordHotkey, clipsDir };
+    const openAtLogin =
+        typeof input.openAtLogin === "boolean"
+            ? input.openAtLogin
+            : current.openAtLogin;
+
+    return { clipSeconds, fps, hotkey, recordHotkey, clipsDir, openAtLogin };
 };

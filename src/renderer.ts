@@ -10,6 +10,7 @@ const browse = document.getElementById('browse') as HTMLButtonElement;
 
 const field = (id: string) =>
   document.getElementById(id) as HTMLInputElement | HTMLSelectElement;
+const checkbox = (id: string) => document.getElementById(id) as HTMLInputElement;
 
 // Put saved settings into the form
 const fill = (settings: Settings) => {
@@ -18,6 +19,7 @@ const fill = (settings: Settings) => {
   field('hotkey').value = settings.hotkey;
   field('recordHotkey').value = settings.recordHotkey;
   field('clipsDir').value = settings.clipsDir;
+  checkbox('openAtLogin').checked = settings.openAtLogin;
 };
 
 window.momentr.getSettings().then(fill);
@@ -109,6 +111,7 @@ form.addEventListener('submit', async (event) => {
     hotkey: field('hotkey').value,
     recordHotkey: field('recordHotkey').value,
     clipsDir: field('clipsDir').value,
+    openAtLogin: checkbox('openAtLogin').checked,
   });
 
   // On success show what main is using (it may have corrected values).
