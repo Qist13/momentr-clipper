@@ -10,7 +10,7 @@ import {
     shell,
     Tray,
 } from "electron";
-import { spawn, ChildProcess } from "node:child_process";
+import { spawn, spawnSync, ChildProcess } from "node:child_process";
 import {
     cleanSettings,
     loadSettings,
@@ -50,6 +50,57 @@ let recording: {
     stopping: boolean;
 } | null = null;
 
+const pulseInput = (source: string) => [
+    "-f",
+    "pulse",
+    "-thread_queue_size",
+    "1024",
+    "-i",
+    source,
+];
+
+const dshowInput = (device: string) => [
+    "-f",
+    "dshow",
+    "-thread_queue_size",
+    "1024",
+    "-i",
+    `audio=${device}`,
+];
+
+const dshowAudioDevices = (): string[] => {
+    const list = spawnSync(
+        "ffmpeg",
+        ["-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
+        { encoding: "utf8" },
+    );
+    return [...list.stderr.matchAll(/"([^"]+)" \(audio\)/g)].map((m) => m[1]);
+};
+
+const LOOPBACK_DEVICE = /stereo mix|what u hear|wave out|cable output/i;
+
+const audioInputs = (recordMic: boolean): string[][] => {
+    if (process.platform === "linux") {
+        const inputs = [pulseInput("@DEFAULT_MONITOR@")];
+        if (recordMic) inputs.push(pulseInput("default"));
+        return inputs;
+    }
+    if (process.platform === "win32") {
+        const devices = dshowAudioDevices();
+        const system = devices.find((d) => LOOPBACK_DEVICE.test(d));
+        const mic = devices.find((d) => !LOOPBACK_DEVICE.test(d));
+        const inputs: string[][] = [];
+        if (system) inputs.push(dshowInput(system));
+        else console.error("No Stereo Mix device found, recording without system sound");
+        if (recordMic) {
+            if (mic) inputs.push(dshowInput(mic));
+            else console.error("No microphone found");
+        }
+        return inputs;
+    }
+    return [];
+};
+
 const startBuffer = () => {
     const bufferSegments = settings.clipSeconds / SEGMENT_SECONDS + 5;
 
@@ -60,7 +111,7 @@ const startBuffer = () => {
     // Screen capture input differs per OS
     const input =
         process.platform === "win32"
-            ? // Whole desktop via GDI; even dimensions are required by libx264
+            ? // Whole desktop via GDI
               [
                   "-f",
                   "gdigrab",
@@ -68,8 +119,6 @@ const startBuffer = () => {
                   String(settings.fps),
                   "-i",
                   "desktop",
-                  "-vf",
-                  "scale=trunc(iw/2)*2:trunc(ih/2)*2",
               ]
             : [
                   "-f",
@@ -82,11 +131,40 @@ const startBuffer = () => {
                   process.env.DISPLAY ?? ":0",
               ];
 
+    const audio = audioInputs(settings.recordMic);
+
+    const filters: string[] = [];
+    let videoOut = "0:v";
+    if (process.platform === "win32") {
+        filters.push("[0:v]scale=trunc(iw/2)*2:trunc(ih/2)*2[v]");
+        videoOut = "[v]";
+    }
+    let audioOut: string | null = null;
+    if (audio.length === 1) {
+        audioOut = "1:a";
+    } else if (audio.length === 2) {
+        filters.push(
+            "[1:a][2:a]amix=inputs=2:duration=longest:normalize=0[a]",
+        );
+        audioOut = "[a]";
+    }
+
+    const output = [
+        ...(filters.length ? ["-filter_complex", filters.join(";")] : []),
+        "-map",
+        videoOut,
+        ...(audioOut
+            ? ["-map", audioOut, "-c:a", "aac", "-b:a", "128k"]
+            : []),
+    ];
+
     const args = [
         "-loglevel",
         "warning",
         "-nostats",
         ...input,
+        ...audio.flat(),
+        ...output,
         "-c:v",
         "libx264",
         "-preset",
@@ -347,14 +425,16 @@ const registerHotkeys = (s: Settings): string | null => {
 const applySettings = (next: Settings): string | null => {
     const prev = settings;
     const bufferChanged =
-        next.fps !== prev.fps || next.clipSeconds !== prev.clipSeconds;
+        next.fps !== prev.fps ||
+        next.clipSeconds !== prev.clipSeconds ||
+        next.recordMic !== prev.recordMic;
 
     if (next.hotkey === next.recordHotkey) {
         return "The clip and recording hotkeys must be different";
     }
     // Restarting ffmpeg would cut the recording off
     if (recording && bufferChanged) {
-        return "Stop the recording before changing clip length or frame rate";
+        return "Stop the recording before changing clip length, frame rate or microphone";
     }
 
     // Hotkeys first: if a new one can't be registered, change nothing
@@ -403,7 +483,7 @@ const openSettings = () => {
     } else {
         settingsWindow = new BrowserWindow({
             width: 420,
-            height: 460,
+            height: 490,
             useContentSize: true,
             resizable: false,
             title: "Momentr Settings",

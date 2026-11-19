@@ -9,6 +9,7 @@ export type Settings = {
     fps: number;
     clipsDir: string;
     openAtLogin: boolean;
+    recordMic: boolean;
 };
 
 // Choices offered in the settings window.
@@ -25,6 +26,7 @@ const defaults = (): Settings => ({
     fps: 30,
     clipsDir: path.join(app.getPath("videos"), "Momentr"),
     openAtLogin: false,
+    recordMic: false,
 });
 
 export const loadSettings = (): Settings => {
@@ -64,5 +66,16 @@ export const cleanSettings = (input: Partial<Settings>, current: Settings): Sett
             ? input.openAtLogin
             : current.openAtLogin;
 
-    return { clipSeconds, fps, hotkey, recordHotkey, clipsDir, openAtLogin };
+    const recordMic =
+        typeof input.recordMic === "boolean" ? input.recordMic : current.recordMic;
+
+    return {
+        clipSeconds,
+        fps,
+        hotkey,
+        recordHotkey,
+        clipsDir,
+        openAtLogin,
+        recordMic,
+    };
 };

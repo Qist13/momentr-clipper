@@ -1,66 +1,79 @@
 <!doctype html>
 <html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>Momentr Settings</title>
-  </head>
-  <body>
-    <form id="settings-form">
-      <label>
-        Clip length
-        <select id="clipSeconds" name="clipSeconds">
-          <option value="10">10 seconds</option>
-          <option value="20">20 seconds</option>
-          <option value="30">30 seconds</option>
-          <option value="60">1 minute</option>
-          <option value="90">1.5 minutes</option>
-          <option value="120">2 minutes</option>
-        </select>
-      </label>
+    <head>
+        <meta charset="UTF-8" />
+        <title>Momentr Settings</title>
+    </head>
+    <body>
+        <form id="settings-form">
+            <label>
+                Clip length
+                <select id="clipSeconds" name="clipSeconds">
+                    <option value="10">10 seconds</option>
+                    <option value="20">20 seconds</option>
+                    <option value="30">30 seconds</option>
+                    <option value="60">1 minute</option>
+                    <option value="90">1.5 minutes</option>
+                    <option value="120">2 minutes</option>
+                </select>
+            </label>
 
-      <label>
-        Frame rate
-        <select id="fps" name="fps">
-          <option value="30">30 fps</option>
-          <option value="60">60 fps</option>
-          <option value="144">144 fps</option>
-        </select>
-      </label>
+            <label>
+                Frame rate
+                <select id="fps" name="fps">
+                    <option value="30">30 fps</option>
+                    <option value="60">60 fps</option>
+                    <option value="144">144 fps</option>
+                </select>
+            </label>
 
-      <label>
-        Save clip hotkey (click, then press keys)
-        <input type="text" id="hotkey" name="hotkey" class="hotkey" readonly />
-      </label>
+            <label>
+                Save clip hotkey (click, then press keys)
+                <input
+                    type="text"
+                    id="hotkey"
+                    name="hotkey"
+                    class="hotkey"
+                    readonly
+                />
+            </label>
 
-      <label>
-        Start/stop recording hotkey
-        <input
-          type="text"
-          id="recordHotkey"
-          name="recordHotkey"
-          class="hotkey"
-          readonly
-        />
-      </label>
+            <label>
+                Start/stop recording hotkey
+                <input
+                    type="text"
+                    id="recordHotkey"
+                    name="recordHotkey"
+                    class="hotkey"
+                    readonly
+                />
+            </label>
 
-      <label>
-        Clips folder
-        <span class="row">
-          <input type="text" id="clipsDir" name="clipsDir" readonly />
-          <button type="button" id="browse" class="secondary">Browse…</button>
-        </span>
-      </label>
+            <label>
+                Clips folder
+                <span class="row">
+                    <input type="text" id="clipsDir" name="clipsDir" readonly />
+                    <button type="button" id="browse" class="secondary">
+                        Browse…
+                    </button>
+                </span>
+            </label>
 
-      <label class="check">
-        <input type="checkbox" id="openAtLogin" name="openAtLogin" />
-        Start Momentr when I log in
-      </label>
+            <label class="check">
+                <input type="checkbox" id="recordMic" name="recordMic" />
+                Record microphone
+            </label>
 
-      <div class="actions">
-        <span id="status"></span>
-        <button type="submit">Save</button>
-      </div>
-    </form>
-    <script type="module" src="/src/renderer.ts"></script>
-  </body>
+            <label class="check">
+                <input type="checkbox" id="openAtLogin" name="openAtLogin" />
+                Start Momentr when I log in
+            </label>
+
+            <div class="actions">
+                <span id="status"></span>
+                <button type="submit">Save</button>
+            </div>
+        </form>
+        <script type="module" src="/src/renderer.ts"></script>
+    </body>
 </html>

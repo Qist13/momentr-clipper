@@ -20,6 +20,7 @@ const fill = (settings: Settings) => {
   field('recordHotkey').value = settings.recordHotkey;
   field('clipsDir').value = settings.clipsDir;
   checkbox('openAtLogin').checked = settings.openAtLogin;
+  checkbox('recordMic').checked = settings.recordMic;
 };
 
 window.momentr.getSettings().then(fill);
@@ -112,6 +113,7 @@ form.addEventListener('submit', async (event) => {
     recordHotkey: field('recordHotkey').value,
     clipsDir: field('clipsDir').value,
     openAtLogin: checkbox('openAtLogin').checked,
+    recordMic: checkbox('recordMic').checked,
   });
 
   // On success show what main is using (it may have corrected values).
