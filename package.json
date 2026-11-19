@@ -1,9 +1,9 @@
 {
   "name": "momentr-clipper",
   "productName": "momentr-clipper",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "My Electron application description",
+  "description": "Save the last seconds of your screen with a hotkey",
   "keywords": [],
   "license": "MIT",
   "author": {

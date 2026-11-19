@@ -95,7 +95,10 @@ const audioInputs = (recordMic: boolean): string[][] => {
         const mic = devices.find((d) => !LOOPBACK_DEVICE.test(d));
         const inputs: string[][] = [];
         if (system) inputs.push(dshowInput(system));
-        else console.error("No Stereo Mix device found, recording without system sound");
+        else
+            console.error(
+                "No Stereo Mix device found, recording without system sound",
+            );
         if (recordMic) {
             if (mic) inputs.push(dshowInput(mic));
             else console.error("No microphone found");
@@ -161,9 +164,7 @@ const startBuffer = (withAudio = true) => {
     if (audio.length === 1) {
         audioOut = "1:a";
     } else if (audio.length === 2) {
-        filters.push(
-            "[1:a][2:a]amix=inputs=2:duration=longest:normalize=0[a]",
-        );
+        filters.push("[1:a][2:a]amix=inputs=2:duration=longest:normalize=0[a]");
         audioOut = "[a]";
     }
 
@@ -171,9 +172,7 @@ const startBuffer = (withAudio = true) => {
         ...(filters.length ? ["-filter_complex", filters.join(";")] : []),
         "-map",
         videoOut,
-        ...(audioOut
-            ? ["-map", audioOut, "-c:a", "aac", "-b:a", "128k"]
-            : []),
+        ...(audioOut ? ["-map", audioOut, "-c:a", "aac", "-b:a", "128k"] : []),
     ];
 
     const args = [
@@ -401,13 +400,15 @@ const createTray = () => {
     updateTray();
 };
 
+const RESOURCES_DIR = app.isPackaged ? process.resourcesPath : app.getAppPath();
+
 const appIcon = () =>
     nativeImage.createFromPath(
-        path.join(app.getAppPath(), "assets", "momentr.png"),
+        path.join(RESOURCES_DIR, "assets", "momentr.png"),
     );
 // Red dot shown in the tray while a start/stop recording is running
 const recordingIcon = () =>
-    nativeImage.createFromPath(path.join(app.getAppPath(), "assets", "tray.png"));
+    nativeImage.createFromPath(path.join(RESOURCES_DIR, "assets", "tray.png"));
 
 // Refresh the tray menu, icon and tooltip after settings or recording change
 const updateTray = () => {
@@ -415,7 +416,9 @@ const updateTray = () => {
     tray.setContextMenu(buildTrayMenu());
     tray.setImage(recording ? recordingIcon() : appIcon());
     tray.setToolTip(
-        recording ? "Momentr Clipper: recording" : "Momentr Clipper (replay on)",
+        recording
+            ? "Momentr Clipper: recording"
+            : "Momentr Clipper (replay on)",
     );
 };
 
@@ -479,7 +482,10 @@ const applySettings = (next: Settings): string | null => {
     }
 
     // Hotkeys first: if a new one can't be registered, change nothing
-    if (next.hotkey !== prev.hotkey || next.recordHotkey !== prev.recordHotkey) {
+    if (
+        next.hotkey !== prev.hotkey ||
+        next.recordHotkey !== prev.recordHotkey
+    ) {
         globalShortcut.unregisterAll();
         const failed = registerHotkeys(next);
         if (failed) {
